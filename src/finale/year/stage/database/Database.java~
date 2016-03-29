@@ -1,0 +1,1045 @@
+package finale.year.stage.database;
+
+import finale.year.stage.models.*;
+import finale.year.stage.util.Util;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.sql.*;
+
+/**
+ * Created by newton on 4/30/15.
+ */
+public class Database {
+    //database specifics
+    private static final String DATABASE_NAME = "stage";
+    private static final String DATABASE_URL = "jdbc:mysql://127.0.0.1/"+DATABASE_NAME;
+    //private static final String DATABASE_URL = "jdbc:mysql://127.7.116.2:3306/"+DATABASE_NAME;
+    private static final String DATABASE_DRIVER = "com.mysql.jdbc.Driver";
+
+   private static final String DATABASE_USER = "stagiere";
+    private static final String DATABASE_USER_PASSWORD = "stagiere";
+    //private static final String DATABASE_USER = "adminqyuXbuX";
+   //private static final String DATABASE_USER_PASSWORD = "i8KGtij_XPtz";
+
+
+    // table specifics
+    private static final String TABLE_LOGIN = "login";
+    private static final String TABLE_COLUMN_EMAIL = "email";
+    private static final String TABLE_COLUMN_TYPE = "type";
+    private static final String TABLE_COLUMN_PASSWORD = "password";
+    private static final String TABLE_COLUMN_SALT = "salt";
+
+    private static final String TABLE_IDENTIFICATION = "identification";
+    private static final String TABLE_COLUMN_IDENTIFIER ="identifier";
+    private static final String TABLE_RECOVERY = "recovery";
+    private static final String TABLE_COLUMN_CODE = "code";
+    private static final String TABLE_COLUMN_ACTIVE = "active";
+    private static final String TABLE_COLUMN_DATE = "date";
+
+
+    private static final String TABLE_THEME = "theme";
+    private static final String TABLE_COLUMN_TITLE = "titre";
+    private static final String TABLE_COLUMN_DESCRIPTION = "description";
+    private static final String TABLE_COLUMN_PROPOSEUR_TYPE = "proposeur_type";
+    private static final String TABLE_COLUMN_PROPOSEUR_EMAIL = "proposeur_email";
+    private static final String TABLE_COLUMN_ID = "id";
+
+    // Reclammation Specifics
+    private static final String TABLE_RECLAMATION = "reclamation";
+    private static final String TABLE_COLUMN_EMAIL_RECEPTEUR = "email_recepteur";
+    private static final String TABLE_COLUMN_EMAIL_SENDER = "email_sender";
+    private static final String TABLE_COLUMN_ID_ETAT ="id_etat";
+    private static final String TABLE_COLUMN_READ_STATUS ="read_status";
+    private static final String TABLE_COLUMN_SWITCH ="switch";
+
+
+    // Phase Specifics
+    private static final String TABLE_PHASE = "phase";
+    private static final String TABLE_COLUMN_NUMBER_PHASE ="number_phase";
+
+
+    // Etat Specifics
+    private static final String TABLE_ETAT ="etat";
+    private static final String TABLE_COLUMN_NOTE ="note";
+    private static final String TABLE_COLUMN_ID_PHASE ="id_phase";
+    private static final String TABLE_COLUMN_EMAIL_ETUDIANT = "email_etudiant";
+
+    //private static final String T
+
+
+
+    private Connection connection;
+    private ResultSet resultSet;
+    private PreparedStatement preparedStatement;
+
+    private Database() throws SQLException, ClassNotFoundException, IllegalAccessException, InstantiationException {
+        Class.forName(DATABASE_DRIVER).newInstance();
+        connection = DriverManager.getConnection(DATABASE_URL,DATABASE_USER,DATABASE_USER_PASSWORD);
+    }
+
+    public static Database connect(){
+        Database db = null;
+        try {
+            db = new Database();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (InstantiationException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
+        return db;
+    }
+
+    //user general
+    public String register(String id, String email, String password){
+
+        JSONObject response = new JSONObject();
+        //check if the id exists
+        String query = "S" +
+                "ELECT COUNT(*) FROM "+TABLE_IDENTIFICATION +
+                " WHERE " + TABLE_COLUMN_IDENTIFIER +"=?";
+        try {
+
+
+            if(valueExists(id, query)){
+                //id exists now get the type
+                query = "SELECT "+TABLE_COLUMN_TYPE + " FROM "+
+                        TABLE_IDENTIFICATION +" WHERE "+ TABLE_COLUMN_IDENTIFIER +" = ?";
+                preparedStatement = null;
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setString(1,id);
+                resultSet = preparedStatement.executeQuery();
+                resultSet.next();//move to first row
+                int userType = resultSet.getInt(TABLE_COLUMN_TYPE);
+                //get an array containing encrypted password and salt
+                String[] array = Util.encryptPassword(password);
+
+                //check if user is already in the login table
+                query = "SELECT COUNT(*) FROM "+TABLE_LOGIN +
+                        " WHERE " + TABLE_COLUMN_EMAIL +"=?";
+
+                if(valueExists(email,query)){
+                    //user already registered
+                    //send back error message
+                    try {
+                        response.put("response code", 0);
+                        response.put("response message","User already registered");
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                    disconnect();
+                    return response.toString();//failure
+
+                }
+
+
+                //user has a valid id and has not been registered
+                //now register to login table
+                query = "INSERT INTO "+TABLE_LOGIN+"("+ TABLE_COLUMN_EMAIL +","+ TABLE_COLUMN_PASSWORD +","+
+                        TABLE_COLUMN_SALT +","+ TABLE_COLUMN_TYPE +") VALUES "+"(?,?,?,?)";
+                preparedStatement = null;
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setString(1,email);
+                preparedStatement.setString(2,array[0]);
+                preparedStatement.setString(3,array[1]);
+                preparedStatement.setInt(4, userType);
+                int rows = preparedStatement.executeUpdate();
+                if(rows == 1){
+                    //registration was successful
+                    //query the user information and send them back
+                    JSONObject user = fetchUserInfo(email,userType);
+                    try {
+                        response.put("response code",1);
+                        response.put("response message","User successful registered");
+                        response.put("user",user);
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                    disconnect();
+                    return  response.toString();//success
+                }
+
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        //id doesn't exist
+        try {
+            response.put("response code",2);
+            response.put("response message","Invalid user id! Please contact the system admin!");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+
+        disconnect();
+        return response.toString();
+
+    }
+
+    public String login(String email, String password){
+
+        JSONObject response = new JSONObject();
+        //check if the email exists i.e the user has been registered already
+        String query = "SELECT COUNT(*) FROM "+TABLE_LOGIN +" WHERE "+ TABLE_COLUMN_EMAIL +" = ?";
+        try {
+            if(valueExists(email,query)){
+                //the user is registered
+                //get user info
+
+                query = "SELECT "+ TABLE_COLUMN_PASSWORD +","+ TABLE_COLUMN_SALT +","+ TABLE_COLUMN_TYPE +
+                        " FROM "+TABLE_LOGIN+" WHERE "+ TABLE_COLUMN_EMAIL +" = ?";
+                preparedStatement = null;
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setString(1,email);
+                resultSet = preparedStatement.executeQuery();
+                resultSet.next();
+                //get salt
+                String salt = resultSet.getString(TABLE_COLUMN_SALT);
+                //concatenate to make password from database salted
+                String dbSaltedPassword = resultSet.getString(TABLE_COLUMN_PASSWORD) + salt;
+                ;
+                //encrypt the supplied password with salt to get equivalent string
+                //as dbSaltedPassword
+                String encryptedPassword = Util.encryptPassword(password,salt) + salt;
+
+                //encode the two and check for equality
+                if(Util.encodeToBase64(dbSaltedPassword).equals(Util.encodeToBase64(encryptedPassword))){
+                    //the two strings are equal, valid login
+                    //fetch user information
+                    JSONObject user = fetchUserInfo(email,resultSet.getInt(TABLE_COLUMN_TYPE));
+
+                    try {
+                        response.put("response code",1);
+                        response.put("response message","Login successful");
+                        response.put("from db",Util.encodeToBase64(dbSaltedPassword));
+                        response.put("supplied",Util.encodeToBase64(encryptedPassword));
+                        response.put("user",user);
+                        disconnect();
+                        return  response.toString();
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                //wrong password
+                try {
+                    response.put("response code",2);
+                    response.put("response message","Wrong credentials");
+                    disconnect();
+                    return response.toString();
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+
+            }
+            //email does not exist
+            try {
+                response.put("response code",0);
+                response.put("response message","Unregistered user");
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        disconnect();
+        return response.toString();
+    }
+
+    public String recoverPassword(String email){
+        JSONObject response = new JSONObject();
+        //check if the email exists i.e the user has been registered already
+        String query = "SELECT COUNT(*) FROM "+TABLE_LOGIN +" WHERE "+ TABLE_COLUMN_EMAIL +" = ?";
+        try {
+            if (valueExists(email, query)) {
+                //check if user has an active request for recovery
+                query = "SELECT COUNT(*) FROM "+TABLE_RECOVERY +" WHERE "+ TABLE_COLUMN_EMAIL +" = ? AND "
+                        +TABLE_COLUMN_ACTIVE +" = ?";
+
+                if(valueExists(email,1,query)){
+                    //there is an active request
+                    //send it back
+                    //retrieve value
+                    query = "SELECT "+TABLE_COLUMN_CODE+" FROM "+TABLE_RECOVERY +" WHERE "+ TABLE_COLUMN_EMAIL
+                            +" = ? AND "+TABLE_COLUMN_ACTIVE +" = ?";
+                    preparedStatement = connection.prepareStatement(query);
+                    preparedStatement.setString(1,email);
+                    preparedStatement.setInt(2,1);
+                    resultSet = preparedStatement.executeQuery();
+                    resultSet.next();
+                    String code = resultSet.getString(TABLE_COLUMN_CODE);
+                    try {
+                        //send email here
+                        String message = "You recently requested for a code to change your password." +
+                                "Please use this code and don't send anymore requests until you use it.\n\n\n" +
+                                "RECOVERY CODE : " +code+"\n\n\n" +
+                                "Use this code to change your password.\n" +
+                                "Ignore this e-mail if " + "you didn't request for a recovery code";
+                       // Util.sendEmail(email,"Recovery code",message);
+                        response.put("response code",3);
+                        response.put("response message","An email with recovery code has been sent again to "+email);
+                        response.put("code",code);
+                        disconnect();
+                        return response.toString();
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+
+
+                }
+
+                //valid email generate code
+                String code = Util.generateRecoveryCode(email);
+                //insert the code into the recovery table
+                query = "INSERT INTO "+ TABLE_RECOVERY +"("+ TABLE_COLUMN_EMAIL +","+TABLE_COLUMN_CODE+")" +
+                        " VALUES "+"(?,?)";
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setString(1,email);
+                preparedStatement.setString(2,code);
+                int rows = preparedStatement.executeUpdate();
+                if(rows == 1){
+                    //code successful added
+                    //send email here
+                    String message = "You recently requested for a code to recover your password.\n\n\n" +
+                            "RECOVERY CODE : " +code+ "\n\n\n" +
+                            "Use this code to change your password.\n" +
+                            "Ignore this e-mail if " + "you didn't request for a recovery code";
+                   // Util.sendEmail(email,"Recovery code",message);
+                    //send response back
+                    try {
+                        response.put("response code",1);
+                        response.put("response message","An email with recovery code has been sent to "+email);
+                        response.put("code",code);
+                        disconnect();
+                        return response.toString();
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+
+            }
+
+            //unregistered user
+            try {
+                response.put("response code",0);
+                response.put("response message","Unknown user with email : "+email);
+
+            } catch (JSONException e) {
+
+                e.printStackTrace();
+
+            }
+
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            try {
+                response.put("response code",2);
+                response.put("response message","Unknown error occured");
+            } catch (JSONException e1) {
+                e1.printStackTrace();
+            }
+        }
+        disconnect();
+        return response.toString();//
+    }
+
+    public String changePassword(String email,String code,String password){
+
+        JSONObject response = new JSONObject();
+        //check if the id exists
+        String query = "SELECT COUNT(*) FROM "+TABLE_RECOVERY +
+                " WHERE " + TABLE_COLUMN_EMAIL +" =? AND "+TABLE_COLUMN_CODE+" =? AND "+TABLE_COLUMN_ACTIVE+ " =? ";
+        try {
+
+            if (valueExists(email, code, 1, query)) {
+                //valid email,code and active
+                //now deactivate code
+                query = "UPDATE " + TABLE_RECOVERY + " SET " +
+                        TABLE_COLUMN_ACTIVE + " =? WHERE " + TABLE_COLUMN_EMAIL + " = ?";
+                preparedStatement = null;
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setInt(1, 0);
+                preparedStatement.setString(2, email);
+                preparedStatement.executeUpdate();
+
+                //encrypt new password
+                String[] credentials = Util.encryptPassword(password);
+
+                //now insert new password
+                query = "UPDATE " + TABLE_LOGIN + " SET " +
+                        TABLE_COLUMN_PASSWORD + " =?, "+TABLE_COLUMN_SALT+" =? "+" WHERE " + TABLE_COLUMN_EMAIL + " = ?";
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setString(1, credentials[0]);
+                preparedStatement.setString(2, credentials[1]);
+                preparedStatement.setString(3, email);
+                int rows = preparedStatement.executeUpdate();
+
+                if(rows == 1){
+                    try {
+                        response.put("response code",1);
+                        response.put("response message","Password changed successfully!");
+                        return response.toString();
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+
+            }else{
+                //code wrong,email wrong, or used
+                try {
+                    response.put("response code",0);
+                    response.put("response message","Error : Expired code or wrong email");
+                    return response.toString();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+            }
+
+
+        }catch (SQLException e){
+            e.printStackTrace();
+
+        }
+
+        try {
+            response.put("response code",2);
+            response.put("response message","Something went terribly wrong");
+            return response.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        return response.toString();
+
+    }
+
+    //theme
+    public String addTheme(String theme){
+        JSONObject response = new JSONObject();
+        JSONObject themeObject = null;
+        String title = null;
+        try {
+            themeObject = new JSONObject(theme);//change the json string to object
+            title = themeObject.getString("title");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+            //return error here
+        }
+        //check if the theme exists
+        String query =  "SELECT COUNT(*) FROM "+TABLE_THEME +
+                " WHERE " + TABLE_COLUMN_TITLE +"=?";
+        try {
+            if(valueExists(title,query)){
+                //the theme title exists refuse it
+                try {
+                    response.put("response code",2);
+                    response.put("response message","Theme with the same title exists already");
+                    disconnect();
+                    return response.toString();
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+            }
+            //theme doesn't exist insert into the theme table
+
+            query = "INSERT INTO "+TABLE_THEME+"("+ TABLE_COLUMN_TITLE +","+ TABLE_COLUMN_DESCRIPTION + "," +
+                    TABLE_COLUMN_PROPOSEUR_TYPE + ","+ TABLE_COLUMN_PROPOSEUR_EMAIL + ") VALUES " +"(?,?,?,?)";
+            preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setString(1,title);
+            preparedStatement.setString(2,themeObject.getString("description"));
+            preparedStatement.setInt(3, themeObject.getInt("type"));
+            preparedStatement.setString(4,themeObject.getString("email"));
+
+            int rows = preparedStatement.executeUpdate();
+
+            if(rows == 1){
+                //successful inserted
+                //send a response
+                response.put("response code",1);
+                response.put("response message","Theme successfully added");
+                disconnect();
+                return response.toString();
+            }
+
+            //theme was not added
+            //database error
+            response.put("response code",3);
+            response.put("response message","Theme could not be added at this time!");
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+
+          /*  if(e instanceof MySQLIntegrityConstraintViolationException){
+                //UNIQUE constraint violation
+
+                try {
+                    response.put("response code",2);
+                    response.put("response message","Theme with the same title exists already");
+                } catch (JSONException e1) {
+                    e1.printStackTrace();
+                }
+
+            }*/
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        disconnect();
+        return response.toString();
+
+
+
+    }
+
+    public String listThemes(){
+        JSONObject response = new JSONObject();
+
+        //get all themes and send them back as an array of json objects
+         String query =  "SELECT * FROM "+TABLE_THEME;
+        try {
+            preparedStatement = connection.prepareStatement(query);
+            resultSet = preparedStatement.executeQuery();
+            JSONObject theme = null;
+            int id = 0;
+            while( resultSet.next()){
+                //add info to a json object
+                theme = new JSONObject();
+                id = resultSet.getInt(TABLE_COLUMN_ID);
+                theme.put(TABLE_COLUMN_ID,id);
+                theme.put(TABLE_COLUMN_TITLE,resultSet.getString(TABLE_COLUMN_TITLE));
+                theme.put(TABLE_COLUMN_DESCRIPTION,resultSet.getString(TABLE_COLUMN_DESCRIPTION));
+                theme.put(TABLE_COLUMN_TYPE,resultSet.getString(TABLE_COLUMN_PROPOSEUR_TYPE));
+                theme.put(TABLE_COLUMN_EMAIL,resultSet.getString(TABLE_COLUMN_PROPOSEUR_EMAIL));
+                //add the theme to the response
+                response.put(String.valueOf(id), theme);
+
+            }
+            disconnect();
+            //send response back
+            return response.toString();
+        } catch (SQLException e) {
+            e.printStackTrace();
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            response.put("response code",0);
+            response.put("response message"," Something went terribly wrong while fetching themes");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        disconnect();
+
+        return response.toString();
+
+
+    }
+
+    public String modifyTheme(String theme){
+
+        JSONObject response = new JSONObject();
+        JSONObject themeObject = null;
+        int id = 0 ;
+        try {
+            themeObject = new JSONObject(theme);//change the json string to object
+            id = Integer.parseInt(themeObject.getString("id"));
+
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+            //return error here
+        }
+
+        //update theme
+        String query =  " UPDATE "+TABLE_THEME + " SET " + TABLE_COLUMN_TITLE +" = ? ,"
+                + TABLE_COLUMN_DESCRIPTION +" = ?" + " WHERE " + TABLE_COLUMN_ID +" = ?";
+
+        try {
+            preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setString(1,themeObject.getString("title"));
+            preparedStatement.setString(2,themeObject.getString("description"));
+            preparedStatement.setInt(3, id);
+            int rows = preparedStatement.executeUpdate();
+            if(rows == 1){
+
+                //successfully modified
+                response.put("response code",1);
+                response.put("response message","Theme modified successfully");
+                disconnect();
+                return response.toString();
+
+            }
+
+            //an error occurred
+
+            response.put("response code",2);
+            response.put("response message","Theme modification failed");
+            disconnect();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        //a terrible error occurred
+        //likely database exception
+        try {
+            response.put("response code",0);
+            response.put("response message","An error occurred during theme modification");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        disconnect();
+
+        return response.toString();
+
+    }
+
+    public String deleteTheme(int id){
+        JSONObject response = new JSONObject();
+
+        //check if id is valid
+        String query =  " SELECT COUNT(*) FROM "+TABLE_THEME + " WHERE " + TABLE_COLUMN_ID +" = ?";
+        try {
+            if(valueExists(id,query)){
+                //id exists now delete it
+                query = "DELETE FROM "+TABLE_THEME + " WHERE "+TABLE_COLUMN_ID +" = ?";
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setInt(1,id);
+                int rows = preparedStatement.executeUpdate();
+                if(rows == 1){
+                    //successfully deleted
+                    response.put("response code",1);
+                    response.put("response message","Theme successfully deleted");
+                    disconnect();
+                    return response.toString();
+
+                }
+
+            }
+            //invalid id
+
+            response.put("response code",2);
+            response.put("response message","Invalid theme id : Deletion failed!");
+            disconnect();
+            return response.toString();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        //error
+        //probably exception from the database
+        try {
+            response.put("response code",0);
+            response.put("response message","An error occured during deletion!");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        disconnect();
+        return response.toString();
+
+    }
+
+    private JSONObject fetchUserInfo(String email, int userType) throws SQLException {
+        String query;//determine table to query by type
+        String table = getUserType(userType);
+
+        query = "SELECT * FROM "+table +
+                " WHERE " + User.COLUMN_EMAIL +" = ?";
+        preparedStatement = null;
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1,email);
+        resultSet = preparedStatement.executeQuery();
+        resultSet.next();
+        JSONObject user = new JSONObject();
+        try {
+            user.put("firstname",resultSet.getString(User.COLUMN_PRENOM));
+            user.put("lastname",resultSet.getString(User.COLUMN_NOM));
+            user.put("sex",resultSet.getString(User.COLUMN_SEXE));
+            user.put("email",resultSet.getString(User.COLUMN_EMAIL));
+            user.put("tel",resultSet.getString(User.COLUMN_TEL));
+            user.put("address",resultSet.getString(User.COLUMN_ADRESSE));
+            user.put("type",userType);
+
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return user;
+    }
+
+    private String getUserType(int userType) {
+        String table = null;
+        switch (userType){
+
+            case 0:
+                table = Etudiant.TABLE_ETUDIANT;
+                break;
+            case 1:
+                table = Tuteur.TABLE_TUTEUR;
+                break;
+            case 2:
+                table = Enseignant.TABLE_ENSEIGNANT;
+                break;
+            case 3:
+                table= Agent.TABLE_AGENT;
+                break;
+            case 4:
+                table = Responsable.TABLE_RESPONSABLE;
+                break;
+
+        }
+        return table;
+    }
+
+    private boolean valueExists(int value,String query) throws SQLException {
+        boolean bool = false;
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setInt(1, value);
+        resultSet = preparedStatement.executeQuery();
+        resultSet.next();//move to first row
+        if(resultSet.getInt("COUNT(*)") == 1){
+            bool = true;
+        }
+        return bool;
+    }
+
+    private boolean valueExists(String value, String query) throws SQLException {
+        boolean bool = false;
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1,value);
+        resultSet = preparedStatement.executeQuery();
+        resultSet.next();//move to first row
+        if(resultSet.getInt("COUNT(*)") == 1){
+            bool = true;
+        }
+        return bool;
+    }
+
+    private boolean valueExists(String email,int active, String query) throws SQLException {
+        boolean bool = false;
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1,email);
+        preparedStatement.setInt(2,active);
+        resultSet = preparedStatement.executeQuery();
+        resultSet.next();//move to first row
+        if(resultSet.getInt("COUNT(*)") == 1){
+            bool = true;
+        }
+        return bool;
+    }
+
+    private boolean valueExists(String email,String code,int active, String query) throws SQLException {
+        boolean bool = false;
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1,email);
+        preparedStatement.setString(2,code);
+        preparedStatement.setInt(3,active);
+        resultSet = preparedStatement.executeQuery();
+        resultSet.next();//move to first row
+        if(resultSet.getInt("COUNT(*)") == 1){
+            bool = true;
+        }
+        return bool;
+    }
+
+    //Reclamation
+    public String submitReclamation(int idEtat,String description,String emailRecepteur,String senderEMail){
+        //check if id exist and email exists
+        JSONObject response = new JSONObject();
+        String query = "INSERT INTO "+ TABLE_RECLAMATION + "("+ TABLE_COLUMN_ID_ETAT+","+TABLE_COLUMN_DESCRIPTION+","+
+                TABLE_COLUMN_EMAIL_RECEPTEUR + ","+ TABLE_COLUMN_EMAIL_SENDER+ ") VALUES ( ?, ? , ?,?)";
+        try {
+            preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setInt(1,idEtat);
+            preparedStatement.setString(2,description);
+            preparedStatement.setString(3,emailRecepteur);
+            preparedStatement.setString(4,senderEMail);
+            int rows = preparedStatement.executeUpdate();
+            if(rows == 1){
+                //success
+                response.put("response code",1);
+                response.put("response message","Votre reclamation a été déposée avec succès");
+                return response.toString();
+            }
+
+            //something went wrong
+            response.put("response code",2);
+            response.put("response message","Votre demande n'a pas été effectuée");
+            return response.toString();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            response.put("response code",0);
+            response.put("response message","Une erreur s'est produite au côté serveur");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return response.toString();
+
+    }
+
+    public String listReclamation(){
+        JSONObject response = new JSONObject();
+
+        //get all reclamations which have not been processed
+        String query =  "SELECT * FROM "+ TABLE_RECLAMATION +" WHERE "+TABLE_COLUMN_SWITCH +" = ?";
+        try {
+            preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setInt(1,0);
+            resultSet = preparedStatement.executeQuery();
+            JSONObject reclamation = null;
+            JSONObject reclamations = new JSONObject();
+            int id = 0;
+            while( resultSet.next()){
+                //add info to a json object
+                reclamation = new JSONObject();
+                id = resultSet.getInt(TABLE_COLUMN_ID);
+                reclamation.put(TABLE_COLUMN_ID, id);
+                reclamation.put(TABLE_COLUMN_ID_ETAT, resultSet.getString(TABLE_COLUMN_ID_ETAT));
+                reclamation.put(TABLE_COLUMN_DESCRIPTION, resultSet.getString(TABLE_COLUMN_DESCRIPTION));
+                reclamation.put(TABLE_COLUMN_EMAIL_RECEPTEUR, resultSet.getString(TABLE_COLUMN_EMAIL_RECEPTEUR));
+                //add the reclamation to the response
+                reclamations.put(String.valueOf(id), reclamation);
+
+            }
+            //create a response message
+            response.put("response code",1);
+            response.put("response message","Les reclamations ont été sélectionnés avec succès");
+            response.put("reclamations",reclamations);
+            disconnect();
+            //send response back
+            return response.toString();
+        } catch (SQLException e) {
+            e.printStackTrace();
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            response.put("response code",0);
+            response.put("response message","Une erreur s'est produite au côté serveur");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        disconnect();
+
+        return response.toString();
+
+
+    }
+
+    public String transferReclamation(int id){
+        JSONObject response = new JSONObject();
+        //check if id  exists
+        String query = "SELECT COUNT(*) FROM "+TABLE_RECLAMATION +" WHERE "+TABLE_COLUMN_ID +" = ?";
+
+        try {
+            if(valueExists(id,query)){
+                //id exists
+                //update it to processed by switching to 1
+                //get the email of the receptor and send them an email
+                query = "UPDATE "+TABLE_RECLAMATION +" SET "+TABLE_COLUMN_SWITCH + " = ? " +" WHERE "+
+                        TABLE_COLUMN_ID +" = ?";
+                preparedStatement = connection.prepareStatement(query);
+                preparedStatement.setInt(1,1);
+                preparedStatement.setInt(2,id);
+                int rows = preparedStatement.executeUpdate();
+                if(rows == 1){
+                    //successfully processed
+                    response.put("response code",1);
+                    response.put("response message","Reclamation transferée avec succès");
+
+                    //get email
+                    query = "SELECT "+TABLE_COLUMN_EMAIL_RECEPTEUR+","+TABLE_COLUMN_DATE +" FROM "+TABLE_RECLAMATION + " WHERE "+
+                            TABLE_COLUMN_ID + " = ?";
+                    preparedStatement = connection.prepareStatement(query);
+                    preparedStatement.setInt(1,id);
+                    resultSet = preparedStatement.executeQuery();
+                    resultSet.next();
+                    String recipient = resultSet.getString(TABLE_COLUMN_EMAIL_RECEPTEUR);
+                    String date = resultSet.getTimestamp(TABLE_COLUMN_DATE).toString();
+                    //send email
+                    Util.sendEmail(recipient,"Une nouvelle reclamation","Vous avez une nouvelle reclamation déposée à "+
+                            date + " par un de vos étudiants.");
+                    disconnect();
+                    return  response.toString();
+                }
+
+            }
+
+            //invalid id
+            response.put("response code",2);
+            response.put("response message","ID Reclamation inconnu");
+            disconnect();
+            return  response.toString();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            response.put("response code",0);
+            response.put("response message","Une erreur s'est produite au côté serveur");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        disconnect();
+        return  response.toString();
+
+
+    }
+
+    public  String consulterReclamations(String emailRecepteur){
+
+        JSONObject response = new JSONObject();
+
+        //get all reclamations which have not been processed
+        String query =  "SELECT * FROM "+ TABLE_RECLAMATION +" WHERE "+TABLE_COLUMN_SWITCH +" = ? AND "+
+                TABLE_COLUMN_EMAIL_RECEPTEUR+" = ? ORDER BY "+TABLE_COLUMN_READ_STATUS;
+        try {
+            preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setInt(1,1);
+            preparedStatement.setString(2, emailRecepteur);
+            resultSet = preparedStatement.executeQuery();
+            JSONObject reclamation = null;
+            JSONArray reclamations = new JSONArray();
+            //for getting student info
+            query = "SELECT nom,prenom"+" FROM "+ Etudiant.TABLE_ETUDIANT +" WHERE "+TABLE_COLUMN_EMAIL +" = ? ";
+            PreparedStatement prepSt = connection.prepareStatement(query);
+            ResultSet set = null;
+            int id = 0;
+            while( resultSet.next()){
+                //add info to a json object
+                reclamation = new JSONObject();
+                reclamation.put("index", id);
+                reclamation.put(TABLE_COLUMN_ID_ETAT, resultSet.getString(TABLE_COLUMN_ID_ETAT));
+                reclamation.put(TABLE_COLUMN_EMAIL_SENDER, resultSet.getString(TABLE_COLUMN_EMAIL_SENDER));
+                reclamation.put(TABLE_COLUMN_DATE,resultSet.getDate(TABLE_COLUMN_DATE));
+                reclamation.put(TABLE_COLUMN_READ_STATUS,resultSet.getInt(TABLE_COLUMN_READ_STATUS));
+                prepSt.setString(1, resultSet.getString(TABLE_COLUMN_EMAIL_SENDER));
+                set = prepSt.executeQuery();
+                set.next();
+
+                reclamation.put("fullname",set.getString("nom")+" "+set.getString("prenom"));
+                prepSt.close();
+                set.close();
+                //get scores
+                query = "SELECT note_tuteur,note_enseignant,id_phase FROM "+ TABLE_ETAT +" WHERE "+TABLE_COLUMN_ID +" = ? ";
+                prepSt = connection.prepareStatement(query);
+                prepSt.setInt(1,resultSet.getInt(TABLE_COLUMN_ID_ETAT));
+                set = prepSt.executeQuery();
+                set.next();
+                reclamation.put("note_enseignant",set.getDouble("note_enseignant"));
+                reclamation.put("note_tuteur",set.getDouble("note_tuteur"));
+                reclamation.put("id_phase",set.getDouble("id_phase"));
+                reclamation.put(TABLE_COLUMN_DESCRIPTION, resultSet.getString(TABLE_COLUMN_DESCRIPTION));
+                reclamation.put(TABLE_COLUMN_EMAIL_RECEPTEUR, resultSet.getString(TABLE_COLUMN_EMAIL_RECEPTEUR));
+                //add the reclamation to the response
+                reclamations.put(id++, reclamation);
+
+            }
+            prepSt.close();
+            set.close();
+            //create a response message
+            response.put("response code",1);
+            response.put("response message","Les reclamations ont été sélectionnés avec succès");
+            response.put("reclamations",reclamations);
+            disconnect();
+            //send response back
+            return response.toString();
+        } catch (SQLException e) {
+            e.printStackTrace();
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            response.put("response code",0);
+            response.put("response message","Une erreur s'est produite au côté serveur");
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        disconnect();
+
+        return response.toString();
+
+
+
+    }
+
+    public void disconnect (){
+        if (resultSet != null){
+            try {
+                resultSet.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (preparedStatement != null){
+            try {
+                preparedStatement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (connection != null){
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+}

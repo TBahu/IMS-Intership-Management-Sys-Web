@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Inscription</title>
+    <link rel="stylesheet" href="../css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body>
+
+<div class="container">
+    <div id="top" class="row">
+        <div id="response">
+
+        </div>
+    </div>
+
+    <div class="row">
+
+        <div class="col-md-4 col-lg-3">
+        </div>
+        <div class="col-md-4 col-lg-6 col-sm-4">
+            <div class="jumbotron">
+                <div class="container">
+                    <form role="form">
+                        <legend>Inscription</legend>
+                        <div class="form-group">
+                            <input type="text" id="identifier" name="id"
+                                   placeholder="Identifier" autofocus="autofocus" required="required"
+                                   class="form-control"/>
+
+                        </div>
+                        <br/>
+
+                        <div class="form-group">
+                            <input type="email" id="email" name="email"
+                                   placeholder="Addresse email" autofocus="autofocus" required="required"
+                                   class="form-control"/>
+
+                        </div>
+
+                        <br/>
+
+                        <div class="form-group">
+                            <input type="password" id="password" name="password" class="form-control"
+                                   placeholder="Mot de passe"/>
+
+                        </div>
+                        <br/>
+
+                        <div class="form-group">
+                            <input type="password" id="confirm-password" name="password" class="form-control"
+                                   placeholder="Confirmez mot de passe"/>
+
+                        </div>
+                        <br/>
+
+                        <div>
+                            <input type="button" id="register" onclick="doLogin()"
+                                   value="S'inscrire" class="btn btn-primary btn-lg btn-block"/>
+                        </div>
+
+                    </form>
+                </div>
+                <!-- end of jumbotron container-->
+                <div id="lower">
+                    <a href="../index.html" id="btn-left-bottom" class="btn-link">S'authentifier</a>
+                    <a href="forgot.html" id="btn-right-bottom" class="btn-link">Réinitialiser mot de passe</a>
+                </div>
+
+            </div>
+            <!-- end of jumbotron-->
+            <div class="col-md-4 col-lg-3">
+            </div>
+
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="../js/jquery-min.js"></script>
+<script type="text/javascript" src="../js/bootstrap.min.js"></script>
+<script type="text/javascript" src="../js/script.js"></script>
+
+</body>
+</html>
